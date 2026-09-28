@@ -2,18 +2,14 @@ import 'package:flutter/material.dart';
 
 import '../config/demo_config.dart';
 import '../models/email_address.dart';
-import '../services/email_service.dart';
 import '../state/email_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/appear_animation.dart';
 import '../widgets/bottom_action_bar.dart';
 import '../widgets/email_card.dart';
 import '../widgets/email_form_sheet.dart';
-import '../widgets/primary_badge.dart';
 import '../widgets/status_chip.dart';
 import 'verify_email_screen.dart';
-
-enum _EmailAction { verify, setPrimary, remove }
 
 class EmailAddressesScreen extends StatelessWidget {
   const EmailAddressesScreen({
@@ -52,7 +48,6 @@ class EmailAddressesScreen extends StatelessWidget {
                       controller: controller,
                       onAddEmail: () => _addEmail(context),
                       onVerify: (e) => _openVerify(context, e),
-                      onMore: (e) => _showActions(context, e),
                     ),
             },
           ),
@@ -99,83 +94,6 @@ class EmailAddressesScreen extends StatelessWidget {
       ),
     );
   }
-
-  Future<void> _showActions(BuildContext context, EmailAddress email) async {
-    final action = await showModalBottomSheet<_EmailAction>(
-      context: context,
-      showDragHandle: true,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (_) => _ActionsSheet(
-        email: email,
-        canSetPrimary: controller.canSetPrimary(email),
-        canRemove: controller.canRemove(email),
-      ),
-    );
-    if (action == null || !context.mounted) return;
-
-    switch (action) {
-      case _EmailAction.verify:
-        await _openVerify(context, email);
-      case _EmailAction.setPrimary:
-        await _guard(context, () async {
-          await controller.setPrimary(email.id);
-          if (context.mounted) {
-            _snack(context, '${email.email} is now your primary email.');
-          }
-        });
-      case _EmailAction.remove:
-        final confirmed = await showDialog<bool>(
-          context: context,
-          builder: (dialogContext) => AlertDialog(
-            backgroundColor: Colors.white,
-            surfaceTintColor: Colors.transparent,
-            title: const Text('Remove email?'),
-            content: Text('${email.email} will be removed from your account.'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(dialogContext).pop(false),
-                child: const Text('Cancel'),
-              ),
-              FilledButton(
-                style: FilledButton.styleFrom(
-                  backgroundColor: AppColors.danger,
-                  minimumSize: const Size(88, 48),
-                ),
-                onPressed: () => Navigator.of(dialogContext).pop(true),
-                child: const Text('Remove'),
-              ),
-            ],
-          ),
-        );
-        if (confirmed != true || !context.mounted) return;
-        await _guard(context, () async {
-          await controller.remove(email.id);
-          if (context.mounted) _snack(context, '${email.email} was removed.');
-        });
-    }
-  }
-
-  Future<void> _guard(
-      BuildContext context, Future<void> Function() task) async {
-    try {
-      await task();
-    } on NetworkException catch (e) {
-      if (context.mounted) _snack(context, e.message);
-    } catch (_) {
-      if (context.mounted) {
-        _snack(context, 'Something went wrong. Please try again.');
-      }
-    }
-  }
-
-  void _snack(BuildContext context, String message) {
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -185,13 +103,11 @@ class _EmailList extends StatelessWidget {
     required this.controller,
     required this.onAddEmail,
     required this.onVerify,
-    required this.onMore,
   });
 
   final EmailController controller;
   final VoidCallback onAddEmail;
   final ValueChanged<EmailAddress> onVerify;
-  final ValueChanged<EmailAddress> onMore;
 
   @override
   Widget build(BuildContext context) {
@@ -202,9 +118,7 @@ class _EmailList extends StatelessWidget {
           child: AppearAnimation(
             child: EmailCard(
               email: email,
-              isBusy: controller.isBusy(email.id),
               onVerify: () => onVerify(email),
-              onMore: () => onMore(email),
             ),
           ),
         );
@@ -275,101 +189,6 @@ class _ListHeader extends StatelessWidget {
             ],
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _ActionsSheet extends StatelessWidget {
-  const _ActionsSheet({
-    required this.email,
-    required this.canSetPrimary,
-    required this.canRemove,
-  });
-
-  final EmailAddress email;
-  final bool canSetPrimary;
-  final bool canRemove;
-
-  @override
-  Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
-    return SafeArea(
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    email.type.label,
-                    style: textTheme.labelSmall?.copyWith(
-                      color: AppColors.inkMuted,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    email.email,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: textTheme.titleMedium
-                        ?.copyWith(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 6,
-                    children: [
-                      if (email.isVerified)
-                        const StatusChip.verified()
-                      else
-                        const StatusChip.notVerified(),
-                      if (email.isPrimary) const PrimaryBadge(),
-                    ],
-                  ),
-                ],
-              ),
-            ),
-            const Divider(height: 1),
-            if (!email.isVerified)
-              ListTile(
-                leading: const Icon(Icons.mark_email_read_outlined),
-                title: const Text('Verify email'),
-                onTap: () => Navigator.of(context).pop(_EmailAction.verify),
-              ),
-            if (!email.isPrimary)
-              ListTile(
-                leading: const Icon(Icons.star_outline_rounded),
-                title: const Text('Set as primary'),
-                subtitle: email.isVerified
-                    ? null
-                    : const Text('Verify this email first'),
-                enabled: canSetPrimary,
-                onTap: () => Navigator.of(context).pop(_EmailAction.setPrimary),
-              ),
-            ListTile(
-              leading: Icon(
-                Icons.delete_outline_rounded,
-                color: canRemove ? AppColors.danger : null,
-              ),
-              title: Text(
-                'Remove email',
-                style: TextStyle(color: canRemove ? AppColors.danger : null),
-              ),
-              subtitle: canRemove
-                  ? null
-                  : const Text('Set another email as primary first'),
-              enabled: canRemove,
-              onTap: () => Navigator.of(context).pop(_EmailAction.remove),
-            ),
-            const SizedBox(height: 8),
-          ],
-        ),
       ),
     );
   }
